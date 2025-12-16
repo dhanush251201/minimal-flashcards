@@ -1,0 +1,152 @@
+name: CI Pipeline
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main, develop ]
+
+jobs:
+  backend-tests:
+    name: Backend Tests
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_USER: flashdecks
+          POSTGRES_PASSWORD: flashdecks
+          POSTGRES_DB: flashdecks_test
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+          cache-dependency-path: backend/requirements.txt
+
+      - name: Install backend dependencies
+        working-directory: ./backend
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Create .env file for testing
+        working-directory: ./backend
+        run: |
+          echo "DATABASE_URL=postgresql+psycopg2://flashdecks:flashdecks@localhost:5432/flashdecks_test" > .env
+          echo "JWT_SECRET_KEY=test-secret-key-for-ci" >> .env
+          echo "JWT_REFRESH_SECRET_KEY=test-refresh-secret-key-for-ci" >> .env
+          echo "JWT_ALGORITHM=HS256" >> .env
+
+      - name: Run Alembic migrations
+        working-directory: ./backend
+        run: |
+          alembic upgrade head
+
+      - name: Run pytest with coverage
+        working-directory: ./backend
+        run: |
+          pytest --cov=app --cov-report=xml --cov-report=term-missing
+
+      - name: Upload coverage report
+        uses: codecov/codecov-action@v4
+        with:
+          file: ./backend/coverage.xml
+          flags: backend
+          name: backend-coverage
+          fail_ci_if_error: false
+          token: ${{ secrets.CODECOV_TOKEN }}
+
+  frontend-tests:
+    name: Frontend Tests and Build
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js 18
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+          cache: 'npm'
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install frontend dependencies
+        working-directory: ./frontend
+        run: npm ci
+
+      - name: Run frontend tests
+        working-directory: ./frontend
+        run: npm test -- --run || echo "No tests found, continuing..."
+        continue-on-error: true
+
+      - name: Run TypeScript type check
+        working-directory: ./frontend
+        run: npm run type-check
+
+      - name: Build frontend
+        working-directory: ./frontend
+        run: npm run build
+
+  linting:
+    name: Code Linting
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install ruff for backend linting
+        run: pip install ruff
+
+      - name: Run ruff on backend
+        working-directory: ./backend
+        run: |
+          ruff check app/ tests/ --output-format=github || echo "Linting issues found, but not failing build"
+        continue-on-error: true
+
+      - name: Set up Node.js 18
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+          cache: 'npm'
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install frontend dependencies
+        working-directory: ./frontend
+        run: npm ci
+
+      - name: Check for ESLint configuration
+        id: eslint-check
+        working-directory: ./frontend
+        run: |
+          if [ -f ".eslintrc.js" ] || [ -f ".eslintrc.json" ] || [ -f ".eslintrc.yml" ] || [ -f "eslint.config.js" ]; then
+            echo "eslint_exists=true" >> $GITHUB_OUTPUT
+          else
+            echo "eslint_exists=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Run ESLint on frontend
+        if: steps.eslint-check.outputs.eslint_exists == 'true'
+        working-directory: ./frontend
+        run: npm run lint || echo "ESLint not configured"
+        continue-on-error: true

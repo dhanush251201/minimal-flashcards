@@ -1,5 +1,7 @@
 # Flash-Decks - Flashcard Learning Application
 
+![CI Pipeline](https://github.com/goosen78/5980-ai-capstone/actions/workflows/ci.yml/badge.svg)
+
 A modern, minimalist flashcard application built with React and FastAPI. Create decks, add flashcards, and review them with a clean, intuitive interface.
 
 ## Features
