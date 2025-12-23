@@ -34,10 +34,12 @@ A modern, minimalist flashcard application built with React and FastAPI. Create 
 
 ### Prerequisites
 
-- **Node.js** (v18 or higher)
-- **Python** (v3.9 or higher)
-- **PostgreSQL** (v15 or higher) or **Docker**
-- **npm** or **yarn**
+- **Node.js** (v18 or higher) - Tested with v25.2.0
+- **Python** (v3.9 or higher) - Tested with v3.13.5
+- **PostgreSQL** (v15 or higher) or **Docker** - Tested with Docker 28.5.2
+- **npm** or **yarn** - Tested with npm 11.6.2
+
+**Note:** For Python 3.13+, this project uses `psycopg` (v3) instead of `psycopg2-binary` for better compatibility.
 
 ### Backend Setup
 
@@ -59,16 +61,34 @@ source .venv/bin/activate
 
 3. Install dependencies:
 ```bash
-pip install -r requirements.txt
+# Upgrade pip
+pip install --upgrade pip
+
+# Install psycopg3 (required for Python 3.13+ compatibility)
+pip install 'psycopg[binary]'
+
+# Install all other dependencies
+pip install fastapi==0.110.0 'uvicorn[standard]==0.29.0' alembic==1.13.1 \
+  'python-jose[cryptography]==3.3.0' 'passlib[argon2]==1.7.4' argon2-cffi==23.1.0 \
+  pydantic-settings==2.1.0 loguru==0.7.2 python-multipart==0.0.9 \
+  email-validator==2.1.1 pytest==8.1.1 pytest-asyncio==0.23.5 \
+  pytest-cov==5.0.0 faker==24.4.0
+
+# Upgrade SQLModel for Pydantic 2.x compatibility
+pip install --upgrade sqlmodel
 ```
 
 4. **Set up environment variables:**
+
+The `.env` file should already exist. Verify it contains the correct database URL:
 ```bash
-cp .env.example .env
+DATABASE_URL=postgresql+psycopg://flashdecks:flashdecks@localhost:5432/flashdecks
 ```
-Edit `.env` and update:
-- `DATABASE_URL`: PostgreSQL connection string
-- `JWT_SECRET_KEY` and `JWT_REFRESH_SECRET_KEY`: Change these in production!
+
+Also update `alembic.ini` line 3 to use `psycopg` instead of `psycopg2`:
+```
+sqlalchemy.url = postgresql+psycopg://flashdecks:flashdecks@localhost:5432/flashdecks
+```
 
 5. **Set up PostgreSQL:**
 
@@ -97,15 +117,36 @@ psql flashdecks -c "GRANT ALL PRIVILEGES ON DATABASE flashdecks TO flashdecks;"
 
 6. Run database migrations:
 ```bash
-alembic upgrade head
+PYTHONPATH=. alembic upgrade head
 ```
 
-7. Run the backend server:
+7. **Add missing database columns** (one-time setup):
+```bash
+python << 'EOF'
+from sqlalchemy import create_engine, text
+from app.core.config import settings
+
+engine = create_engine(str(settings.DATABASE_URL))
+with engine.connect() as conn:
+    conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS current_streak INTEGER DEFAULT 0"))
+    conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS longest_streak INTEGER DEFAULT 0"))
+    conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS last_activity_date DATE"))
+    conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS openai_api_key VARCHAR"))
+    conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS llm_provider_preference VARCHAR"))
+    conn.commit()
+    print("Columns added successfully!")
+EOF
+```
+
+8. Run the backend server:
 ```bash
 uvicorn app.main:app --reload --port 8000
 ```
 
-The backend API will be available at `http://localhost:8000`
+The backend API will be available at:
+- API: `http://localhost:8000/api/v1`
+- Swagger UI (API Docs): `http://localhost:8000/docs`
+- ReDoc (Alternative API Docs): `http://localhost:8000/redoc`
 
 ### Frontend Setup
 
@@ -125,6 +166,17 @@ npm run dev
 ```
 
 The frontend will be available at `http://localhost:5173`
+
+### Verify Everything is Working
+
+Once both servers are running:
+
+1. **Backend API**: Visit http://localhost:8000/docs - You should see the Swagger UI with all API endpoints
+2. **Frontend**: Visit http://localhost:5173 - You should see the landing page
+3. **Test API**: In the Swagger UI, try the `/api/v1/decks` endpoint - it should return an empty array `[]`
+4. **Login**: Click "Log in" on the frontend - you should be redirected to the dashboard
+
+If all four checks pass, your setup is complete!
 
 ## Usage
 
@@ -150,8 +202,10 @@ flashcards-app-minimal/
 │   │   ├── services/         # Business logic
 │   │   └── main.py           # FastAPI app entry point
 │   ├── tests/                # Backend tests
+│   ├── alembic/              # Database migrations
 │   ├── requirements.txt      # Python dependencies
-│   └── flashdecks.db         # SQLite database (auto-generated)
+│   ├── .env                  # Environment variables (configure this)
+│   └── alembic.ini           # Alembic configuration
 ├── frontend/
 │   ├── src/
 │   │   ├── components/       # React components
@@ -197,28 +251,86 @@ flashcards-app-minimal/
 - To reset the database, drop and recreate it, then run migrations again
 
 ### Default User
-- Email: `student@flashdecks.com`
-- Password: `password123`
-- A default user is automatically created on first run
+- Email: `student@flashcards.local`
+- Password: `password`
+- A default user is automatically created when needed
+- The app uses simplified authentication for development
 
 ### Static Data
 - Activity chart shows static data (not connected to actual usage)
 - Streak counter is static
 - These are placeholders for a future implementation
 
+## Troubleshooting
+
+### Python 3.13+ Compatibility
+If you encounter errors with `psycopg2-binary`, ensure you're using `psycopg` (v3):
+```bash
+pip install 'psycopg[binary]'
+```
+
+### Pydantic Version Issues
+If you see errors like "Field requires a type annotation", upgrade SQLModel:
+```bash
+pip install --upgrade sqlmodel
+```
+
+### Missing Database Columns
+If migrations don't create all required columns, run the manual column addition script from step 7 of the backend setup.
+
+### ModuleNotFoundError: No module named 'app'
+Always use `PYTHONPATH=.` when running alembic commands:
+```bash
+PYTHONPATH=. alembic upgrade head
+```
+
+### PostgreSQL Connection Refused
+Make sure your PostgreSQL container is running:
+```bash
+docker ps | grep flashdecks-postgres
+```
+
+If not running, start it with the Docker command from step 5 of the backend setup.
+
 ## Testing
 
 ### Backend Tests
 ```bash
 cd backend
-pytest tests/ -v
+source .venv/bin/activate
+
+# Run all tests
+DATABASE_URL="sqlite:///./test.db" pytest
+
+# Run with verbose output
+DATABASE_URL="sqlite:///./test.db" pytest -v
+
+# Run with coverage
+DATABASE_URL="sqlite:///./test.db" pytest --cov=app --cov-report=html
+# View coverage report at backend/htmlcov/index.html
 ```
 
-### Frontend Type Checking
+### Frontend Tests
 ```bash
 cd frontend
+
+# Run tests in watch mode
+npm run test
+
+# Run tests with UI
+npm run test:ui
+
+# Type checking
 npm run type-check
 ```
+
+## Important Notes
+
+### Database Driver
+This project uses **psycopg v3** (not psycopg2-binary) for better compatibility with Python 3.13+. The `requirements.txt` file lists `psycopg2-binary==2.9.9`, but you should install `psycopg[binary]` instead as shown in the setup instructions.
+
+### SQLModel Version
+The project requires **SQLModel 0.0.27+** (not 0.0.21 as listed in requirements.txt) for compatibility with Pydantic 2.x. The upgrade command in step 3 handles this.
 
 ## Known Limitations (Basic Version)
 
@@ -226,7 +338,7 @@ This is a simplified version intended for educational purposes. The following fe
 - No dark mode
 - No AI features (deck generation, answer checking)
 - Only basic card types (no multiple choice, cloze, etc.)
-- No practice or exam modes
+- No practice or exam modes (only review mode implemented)
 - No card flagging
 - No CI/CD pipeline
 - Limited test coverage
@@ -250,7 +362,3 @@ For a complete version, consider adding:
 ## License
 
 This project is for educational purposes.
-
-## Support
-
-For issues or questions, please refer to the PROMPT.md file for project specifications.
