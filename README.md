@@ -64,23 +64,23 @@ source .venv/bin/activate
 # Upgrade pip
 pip install --upgrade pip
 
-# Install psycopg3 (required for Python 3.13+ compatibility)
-pip install 'psycopg[binary]'
-
-# Install all other dependencies
-pip install fastapi==0.110.0 'uvicorn[standard]==0.29.0' alembic==1.13.1 \
-  'python-jose[cryptography]==3.3.0' 'passlib[argon2]==1.7.4' argon2-cffi==23.1.0 \
-  pydantic-settings==2.1.0 loguru==0.7.2 python-multipart==0.0.9 \
-  email-validator==2.1.1 pytest==8.1.1 pytest-asyncio==0.23.5 \
-  pytest-cov==5.0.0 faker==24.4.0
-
-# Upgrade SQLModel for Pydantic 2.x compatibility
-pip install --upgrade sqlmodel
+# Install all dependencies from requirements.txt
+pip install -r requirements.txt
 ```
+
+**Note:** The `requirements.txt` file includes:
+- `psycopg[binary]>=3.1.0` for Python 3.13+ compatibility
+- `sqlmodel>=0.0.27` for Pydantic 2.x compatibility
 
 4. **Set up environment variables:**
 
-The `.env` file should already exist. Verify it contains the correct database URL:
+The `.env` file should already exist. If they do not exist then create a copy of the the `.env.example` and rename it `.env`.
+Use the following command on linux/MacOS.
+```bash
+cp .env.example .env
+```
+
+Verify it contains the correct database URL:
 ```bash
 DATABASE_URL=postgresql+psycopg://flashdecks:flashdecks@localhost:5432/flashdecks
 ```
@@ -139,8 +139,21 @@ EOF
 ```
 
 8. Run the backend server:
+
+**For development (without auto-reload to avoid reload loops):**
 ```bash
-uvicorn app.main:app --reload --port 8000
+uvicorn app.main:app --port 8000
+```
+
+**Note:** We disable `--reload` to prevent continuous reload loops caused by WatchFiles detecting changes in the virtual environment. When you make code changes, simply stop the server (Ctrl+C) and restart it.
+
+If you get this error:
+```
+ModuleNotFoundError: No module named 'psycopg'
+```
+Make sure the virtual environment is activated:
+```bash
+source .venv/bin/activate
 ```
 
 The backend API will be available at:
@@ -292,6 +305,15 @@ docker ps | grep flashdecks-postgres
 
 If not running, start it with the Docker command from step 5 of the backend setup.
 
+### Server Keeps Reloading Continuously
+This is a known issue with Python 3.14 and WatchFiles where it detects changes in the `.venv` folder even when excluded. The recommended solution is to **run without the `--reload` flag**:
+
+```bash
+uvicorn app.main:app --port 8000
+```
+
+When you make code changes, manually restart the server (Ctrl+C then run the command again). This is actually faster than waiting for the auto-reload in most cases.
+
 ## Testing
 
 ### Backend Tests
@@ -327,10 +349,10 @@ npm run type-check
 ## Important Notes
 
 ### Database Driver
-This project uses **psycopg v3** (not psycopg2-binary) for better compatibility with Python 3.13+. The `requirements.txt` file lists `psycopg2-binary==2.9.9`, but you should install `psycopg[binary]` instead as shown in the setup instructions.
+This project uses **psycopg v3** for better compatibility with Python 3.13+. The `requirements.txt` file specifies `psycopg[binary]>=3.1.0` which will be automatically installed when you run `pip install -r requirements.txt`.
 
 ### SQLModel Version
-The project requires **SQLModel 0.0.27+** (not 0.0.21 as listed in requirements.txt) for compatibility with Pydantic 2.x. The upgrade command in step 3 handles this.
+The project requires **SQLModel 0.0.27+** for compatibility with Pydantic 2.x. The `requirements.txt` file specifies `sqlmodel>=0.0.27` which will be automatically installed.
 
 ## Known Limitations (Basic Version)
 

@@ -1,0 +1,5 @@
+[tool.uvicorn]
+# Uvicorn configuration for development
+reload = true
+reload-dirs = ["app"]
+reload-excludes = [".venv/*", "*.pyc", "__pycache__/*", ".git/*"]
